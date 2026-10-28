@@ -1,0 +1,82 @@
+{
+  "title": "BRESSER REX (inoffiziell)",
+  "config": {
+    "step": {
+      "user": {
+        "title": "BRESSER REX verbinden",
+        "description": "Gib die lokale IP-Adresse oder den Hostnamen ein. Der Drucker muss eingeschaltet und über TCP-Port 8899 erreichbar sein. Beende andere Programme, die den Drucker steuern.",
+        "data": {
+          "host": "IP-Adresse oder Hostname"
+        },
+        "data_description": {
+          "host": "Beispiel: drucker.local oder 192.0.2.10 (hier die eigene Druckeradresse eingeben)."
+        }
+      },
+      "reconfigure": {
+        "title": "Druckeradresse ändern",
+        "description": "Die neue Adresse muss zum selben Drucker gehören.",
+        "data": {
+          "host": "IP-Adresse oder Hostname"
+        },
+        "data_description": {
+          "host": "Lokale IP-Adresse oder DNS/mDNS-Name desselben Druckers."
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Bitte Hostname oder IP-Adresse ohne URL, Port und Pfad eingeben.",
+      "cannot_connect": "Verbindung zum unterstützten Drucker fehlgeschlagen. Adresse und Erreichbarkeit prüfen.",
+      "printer_busy": "Ein anderes Programm steuert den Drucker. Bitte später erneut versuchen."
+    },
+    "abort": {
+      "already_configured": "Dieser Drucker ist bereits eingerichtet.",
+      "unique_id_mismatch": "Diese Adresse gehört zu einem anderen Drucker."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "BRESSER REX Einstellungen",
+        "data": {
+          "update_seconds": "Aktualisierungsintervall (Sekunden)",
+          "camera_enabled": "MJPEG-Kamera aktivieren"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "nozzle": {
+        "name": "Extrudertemperatur"
+      },
+      "nozzle_target": {
+        "name": "Extruder-Solltemperatur"
+      },
+      "bed": {
+        "name": "Druckbetttemperatur"
+      },
+      "bed_target": {
+        "name": "Druckbett-Solltemperatur"
+      },
+      "machine_status": {
+        "name": "Druckerstatus"
+      },
+      "current_file": {
+        "name": "Aktuelle Druckdatei"
+      },
+      "progress": {
+        "name": "Druckfortschritt"
+      }
+    },
+    "switch": {
+      "led": {
+        "name": "LED-Beleuchtung"
+      }
+    },
+    "camera": {
+      "camera": {
+        "name": "Kamera"
+      }
+    }
+  }
+}

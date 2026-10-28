@@ -1,0 +1,10 @@
+"""Shared constants for the unofficial BRESSER REX integration."""
+
+DOMAIN = "bresser_rex"
+DEFAULT_TCP_PORT = 8899
+DEFAULT_CAMERA_PORT = 8080
+DEFAULT_UPDATE_SECONDS = 30
+MIN_UPDATE_SECONDS = 15
+MAX_UPDATE_SECONDS = 300
+CONF_CAMERA_ENABLED = "camera_enabled"
+CONF_UPDATE_SECONDS = "update_seconds"

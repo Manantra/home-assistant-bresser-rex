@@ -1,0 +1,82 @@
+{
+  "title": "BRESSER REX (unofficial)",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect your BRESSER REX",
+        "description": "Enter the printer's local IP address or hostname. The printer must be powered on and reachable via TCP port 8899. Close any other application holding control of the printer.",
+        "data": {
+          "host": "Printer IP address or hostname"
+        },
+        "data_description": {
+          "host": "Example: printer.local or 192.0.2.10 (enter your own device address)."
+        }
+      },
+      "reconfigure": {
+        "title": "Change printer address",
+        "description": "The new address must belong to the same physical printer.",
+        "data": {
+          "host": "Printer IP address or hostname"
+        },
+        "data_description": {
+          "host": "Local IP address or DNS/mDNS name of the same printer."
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Enter a hostname or IP address, without a URL, port or path.",
+      "cannot_connect": "Cannot connect to a supported printer. Check the address and printer availability.",
+      "printer_busy": "Another application has control of the printer. Try again shortly."
+    },
+    "abort": {
+      "already_configured": "This printer is already configured.",
+      "unique_id_mismatch": "This address belongs to another printer."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "BRESSER REX options",
+        "data": {
+          "update_seconds": "Refresh interval (seconds)",
+          "camera_enabled": "Enable MJPEG camera"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "nozzle": {
+        "name": "Nozzle temperature"
+      },
+      "nozzle_target": {
+        "name": "Nozzle target temperature"
+      },
+      "bed": {
+        "name": "Bed temperature"
+      },
+      "bed_target": {
+        "name": "Bed target temperature"
+      },
+      "machine_status": {
+        "name": "Printer status"
+      },
+      "current_file": {
+        "name": "Current print file"
+      },
+      "progress": {
+        "name": "Print progress"
+      }
+    },
+    "switch": {
+      "led": {
+        "name": "LED light"
+      }
+    },
+    "camera": {
+      "camera": {
+        "name": "Camera"
+      }
+    }
+  }
+}
