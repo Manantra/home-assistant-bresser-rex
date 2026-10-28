@@ -1,0 +1,24 @@
+name: Protocol tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile Python sources
+        run: python -m compileall -q custom_components/bresser_rex
+      - name: Run unit and privacy tests
+        run: python -m unittest discover -s tests -v
