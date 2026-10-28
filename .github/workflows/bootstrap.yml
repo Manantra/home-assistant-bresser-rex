@@ -30,6 +30,9 @@ jobs:
           tar -xJf /tmp/bresser-beta.tar.xz
           test -f custom_components/bresser_rex/manifest.json
           test -f README.md
+          # The GitHub Actions token cannot create additional workflow files.
+          # Publish application code first; CI workflows are installed separately.
+          rm -f .github/workflows/hacs.yml .github/workflows/hassfest.yml .github/workflows/tests.yml
           rm -rf .bootstrap
       - name: Publish source files
         shell: bash
