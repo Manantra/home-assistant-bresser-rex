@@ -47,8 +47,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if coordinator.power_is_off:
                 coordinator.async_set_updated_data(empty_snapshot("OFF"))
             else:
-                if coordinator.power_state is True:
-                    coordinator.async_set_updated_data(empty_snapshot("STARTING"))
+                # Notify even if the socket becomes unavailable: never retain
+                # an old definite on/off status while the source is unknown.
+                new_status = "STARTING" if coordinator.power_state is True else None
+                coordinator.async_set_updated_data(empty_snapshot(new_status))
                 hass.async_create_task(coordinator.async_request_refresh())
 
         entry.async_on_unload(

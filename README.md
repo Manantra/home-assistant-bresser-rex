@@ -5,13 +5,13 @@
 
 **Experimental community integration** for BRESSER REX / supported FlashForge Adventurer III–compatible printers using the **local** network protocol. No firmware changes, cloud account, or OctoPrint installation required.
 
-> Unofficial independent community project. Not affiliated with or endorsed by BRESSER, FlashForge or Home Assistant. This release has unit-tested protocol logic but **has not yet been confirmed working end-to-end on a production Home Assistant instance**.
+> Unofficial independent community project. Not affiliated with or endorsed by BRESSER, FlashForge or Home Assistant. Core functionality of v0.2.0 has been validated on a physical BRESSER REX using firmware v1.3.7. The new optional smart-plug feature in v0.3.0 is **awaiting hardware validation**.
 
 ## Supported devices
 
 | Device | Status |
 | --- | --- |
-| BRESSER REX (Adventurer III-compatible) | Protocol responses verified on firmware v1.3.7; Home Assistant runtime beta |
+| BRESSER REX (Adventurer III-compatible) | v0.2.0 core Home Assistant functions verified on firmware v1.3.7; v0.3.0 smart-plug beta |
 | FlashForge Adventurer III / Adventurer 3 | Underlying protocol family compatible; integration not yet hardware-tested across variants |
 | Other FlashForge printers | Not supported without verification |
 
@@ -25,6 +25,7 @@ Printer detection requires `M115` to identify `FlashForge Adventurer III` / `Adv
 - **Optimistic LED switch:** uses `M146`, while avoiding the printer's unreliable `M119` LED state. The actual light state is unknown after restarting Home Assistant or adjusting it elsewhere.
 - Optional MJPEG camera, using the printer's camera stream on TCP port 8080 and Home Assistant's authenticated camera view.
 - Reconfigure IP/hostname later, preserving identity; options for camera enabled/disabled and refresh interval (15–300 seconds; default 30 seconds).
+- **Optional smart socket (v0.3.0 beta):** select an existing Home Assistant `switch` entity to show power supply status on the printer device. When it reports `off`, printer network polling is skipped and stale temperature/print data is cleared. The integration does not switch the socket on or off.
 - English and German setup and entity names.
 - Polling and LED commands serialized through a single coordinator; error handling for busy devices.
 
@@ -43,15 +44,33 @@ Printer detection requires `M115` to identify `FlashForge Adventurer III` / `Adv
 
 ### HACS (after public repository is created)
 
-In HACS, add `https://github.com/Manantra/home-assistant-bresser-rex` as a **custom repository** of type **Integration**. Install it, restart Home Assistant and use the standard add-integration wizard above. The GitHub repository must exist and pass HACS validation before this method can be used.
+In HACS, add `https://github.com/Manantra/home-assistant-bresser-rex` as a **custom repository** of type **Integration**. Install it, restart Home Assistant and use the standard add-integration wizard above. After installing or updating the files, restart Home Assistant. This custom repository has passed HACS validation for earlier beta versions.
 
 ## Configuration & device identity
 
 - Hostname/IP is **never hardcoded** in this project. Home Assistant stores it locally in its config entry.
 - To change a printer's address: **Settings → Devices & services → BRESSER REX → Reconfigure**. The wizard checks that the replacement address returns the **same serial number**.
-- To change polling or camera: select **Configure** on the integration entry.
+- To change polling, camera or the optional smart socket: select **Configure** on the integration entry.
+- The selected socket entity ID is stored only in Home Assistant's local integration options; no addresses or other private identifiers are committed to the repository.
 - The printer serial is used only as a stable identifier within the user's **local Home Assistant configuration**. It is not logged by this integration or sent anywhere else. Never post it in a public issue.
 - For multiple printers, each must have its own serial number and IP/hostname.
+
+## Optional smart socket (v0.3.0 beta)
+
+Select **Settings → Devices & services → BRESSER REX → Configure → Smart plug (optional)** and choose the Home Assistant `switch` entity that supplies power to your printer. Leave this field blank to use the original network-only behaviour.
+
+| Socket switch state | Printer status | Temperatures/file/progress | LED and camera | TCP polling |
+| --- | --- | --- | --- | --- |
+| `off` | `OFF` | Cleared (unknown, not stale) | Unavailable | Stopped |
+| `on` | `STARTING` then actual printer status | Refreshed when printer responds | Available | Resumes |
+| `unknown` / `unavailable` | Determined by regular network poll | Determined by regular network poll | Normal network behaviour | Continues |
+| Not configured | Original behaviour | Original behaviour | Original behaviour | Continues |
+
+A separate **Power supply** binary sensor is created on the printer device when a socket is selected. It reflects the external switch's reported on/off state, even when TCP polling fails. It cannot independently confirm that the printer has finished starting or that its physical power switch is on. **The integration does not control power to the printer.**
+
+When powered off, no failed printer connections are generated by polling, and old temperatures and print progress are cleared instead of being displayed as current readings. The LED entity and camera are marked unavailable while there is no power, which accurately describes their function. The printer status stays available and reads `OFF`. If the switch itself is unreachable, the power binary sensor becomes unavailable rather than making a false off claim.
+
+**Suggested hardware test:** after installation, select the smart plug, turn it off, restart Home Assistant with the printer off, then switch it on and ensure status/temperatures recover. Always finish printing and allow the printer to cool before cutting power with an external socket; this integration does not automatically shut down a printer safely.
 
 ## Printer protocol and limitations
 
@@ -68,6 +87,7 @@ The camera is provided at `http://PRINTER_IP:8080/?action=stream` on verified ha
 - **Intermittent camera error after changing LED**: Starting with v0.2.1, the MJPEG connection and camera still-image retrieval retry short-lived failures locally. This is a mitigation pending a real-device retest. If an already-running MJPEG connection is cut by the firmware, the frontend may still need to reopen the view; please report sanitized HA log details if it reproduces.
 - **Progress unavailable**: Expected while idle; during a print report sanitized `M119` and `M27` responses in an issue (no serial, file paths or other private data).
 - **Changed IP**: Use the reconfigure option rather than removing and re-adding the printer.
+- **Smart plug misreported as unknown**: Check that the selected socket's Home Assistant entity is a switch and that its state is exactly `on` or `off`. Use **Configure** to select a different socket or remove the selection.
 - **Upgrading from 0.1.0**: Keep a backup. Domain and entity unique IDs remain the same, but a first Home Assistant runtime test is still required. Do not use the old `command_line` LED and the new LED switch simultaneously.
 
 ## Development
@@ -77,7 +97,7 @@ python -m unittest discover -s tests -v
 python -m compileall -q custom_components/bresser_rex
 ```
 
-GitHub Actions include protocol tests, HACS validation and hassfest. These are **configured** but have not run until the code is published on GitHub. No real IP addresses, serials or MAC addresses belong in this repository; examples use RFC 5737 TEST-NET addresses.
+GitHub Actions run protocol/privacy tests, HACS validation and hassfest for each commit. No real IP addresses, serials or MAC addresses belong in this repository; examples use RFC 5737 TEST-NET addresses.
 
 ## Privacy & security
 
