@@ -33,10 +33,19 @@ class FakeStates:
         return types.SimpleNamespace(state=self.state)
 
 
+class FakeServices:
+    def __init__(self):
+        self.calls = []
+
+    async def async_call(self, domain, action, data, *, blocking):
+        self.calls.append((domain, action, data, blocking))
+
+
 class FakeHass:
     def __init__(self, state):
         self.states = FakeStates(state)
         self.calls = []
+        self.services = FakeServices()
 
     async def async_add_executor_job(self, func, *args):
         self.calls.append((func, args))
@@ -57,6 +66,9 @@ def load_coordinator():
     fake["homeassistant.core"].HomeAssistant = FakeHass
     fake["homeassistant.const"].STATE_ON = "on"
     fake["homeassistant.const"].STATE_OFF = "off"
+    fake["homeassistant.const"].ATTR_ENTITY_ID = "entity_id"
+    fake["homeassistant.const"].SERVICE_TURN_ON = "turn_on"
+    fake["homeassistant.const"].SERVICE_TURN_OFF = "turn_off"
     fake["homeassistant.helpers.device_registry"].DeviceInfo = dict
     fake["homeassistant.helpers.update_coordinator"].DataUpdateCoordinator = FakeCoordinatorBase
     fake["homeassistant.helpers.update_coordinator"].UpdateFailed = FakeUpdateFailed
@@ -134,6 +146,76 @@ class CoordinatorPowerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(COORDINATOR.RexError):
                 await coordinator.async_set_led(True)
         self.assertEqual(hass.calls, [])
+
+    async def test_power_on_calls_selected_external_switch(self):
+        hass, coordinator = self.make_coordinator("off")
+        await coordinator.async_set_power(True)
+        self.assertEqual(
+            hass.services.calls,
+            [("switch", "turn_on", {"entity_id": "switch.example_plug"}, True)],
+        )
+        self.assertEqual(hass.calls, [])
+
+    async def test_unknown_switch_state_refuses_control(self):
+        hass, coordinator = self.make_coordinator("unavailable")
+        with self.assertRaises(COORDINATOR.RexError):
+            await coordinator.async_set_power(True)
+        with self.assertRaises(COORDINATOR.RexError):
+            await coordinator.async_set_power(False)
+        self.assertEqual(hass.services.calls, [])
+
+    async def test_power_off_permitted_only_after_fresh_cold_ready_reading(self):
+        hass, coordinator = self.make_coordinator("on")
+        ready = {
+            "machine_status": "READY",
+            "nozzle": 25.0, "bed": 23.0,
+            "nozzle_target": 0.0, "bed_target": 0.0,
+        }
+        with patch.object(COORDINATOR, "get_readings", return_value=ready):
+            await coordinator.async_set_power(False)
+        self.assertEqual(len(hass.calls), 1)
+        self.assertEqual(
+            hass.services.calls,
+            [("switch", "turn_off", {"entity_id": "switch.example_plug"}, True)],
+        )
+
+    async def test_power_off_refused_while_printing_or_hot(self):
+        for fields in (
+            {"machine_status": "PRINTING"},
+            {"nozzle": 160.0},
+            {"bed": 55.0},
+            {"nozzle_target": 200.0},
+            {"machine_status": None},
+            {"nozzle": None},
+        ):
+            with self.subTest(fields=fields):
+                hass, coordinator = self.make_coordinator("on")
+                reading = {
+                    "machine_status": "READY",
+                    "nozzle": 25.0, "bed": 23.0,
+                    "nozzle_target": 0.0, "bed_target": 0.0,
+                }
+                reading.update(fields)
+                with patch.object(COORDINATOR, "get_readings", return_value=reading):
+                    with self.assertRaises(COORDINATOR.RexError):
+                        await coordinator.async_set_power(False)
+                self.assertEqual(hass.services.calls, [])
+
+    async def test_no_power_off_when_printer_unreachable(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(
+            COORDINATOR, "get_readings", side_effect=COORDINATOR.RexError("offline")
+        ):
+            with self.assertRaises(COORDINATOR.RexError):
+                await coordinator.async_set_power(False)
+        self.assertEqual(hass.services.calls, [])
+
+    async def test_idempotent_switch_action_calls_no_services(self):
+        for state, action in (("on", True), ("off", False)):
+            hass, coordinator = self.make_coordinator(state)
+            await coordinator.async_set_power(action)
+            self.assertEqual(hass.calls, [])
+            self.assertEqual(hass.services.calls, [])
 
 
 if __name__ == "__main__":
