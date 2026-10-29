@@ -78,6 +78,9 @@
     "switch": {
       "led": {
         "name": "LED-Beleuchtung"
+      },
+      "power_control": {
+        "name": "Drucker-Stromversorgung"
       }
     },
     "camera": {

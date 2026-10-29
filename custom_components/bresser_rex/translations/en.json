@@ -78,6 +78,9 @@
     "switch": {
       "led": {
         "name": "LED light"
+      },
+      "power_control": {
+        "name": "Printer power"
       }
     },
     "camera": {

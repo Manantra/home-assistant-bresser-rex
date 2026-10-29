@@ -41,6 +41,10 @@ class PublicRepoTests(unittest.TestCase):
                 set(strings["entity"]["binary_sensor"]),
                 set(translations["entity"]["binary_sensor"]),
             )
+            self.assertEqual(
+                set(strings["entity"]["switch"]),
+                set(translations["entity"]["switch"]),
+            )
 
     def test_manifest_and_hacs_metadata(self):
         manifest = json.loads((ROOT / "custom_components" / "bresser_rex" / "manifest.json").read_text())
