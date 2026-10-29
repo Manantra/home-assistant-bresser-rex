@@ -65,6 +65,7 @@ The camera is provided at `http://PRINTER_IP:8080/?action=stream` on verified ha
 
 - **Can't connect**: Ensure printer power, networking and port 8899 reachability. Close FlashForgeUI or another app if it currently owns the printer control session.
 - **No camera**: Enable the built-in camera in the printer menu; verify its local stream in your browser; optionally disable the camera entity in integration settings.
+- **Intermittent camera error after changing LED**: Starting with v0.2.1, the MJPEG connection and camera still-image retrieval retry short-lived failures locally. This is a mitigation pending a real-device retest. If an already-running MJPEG connection is cut by the firmware, the frontend may still need to reopen the view; please report sanitized HA log details if it reproduces.
 - **Progress unavailable**: Expected while idle; during a print report sanitized `M119` and `M27` responses in an issue (no serial, file paths or other private data).
 - **Changed IP**: Use the reconfigure option rather than removing and re-adding the printer.
 - **Upgrading from 0.1.0**: Keep a backup. Domain and entity unique IDs remain the same, but a first Home Assistant runtime test is still required. Do not use the old `command_line` LED and the new LED switch simultaneously.
