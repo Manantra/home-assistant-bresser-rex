@@ -7,13 +7,13 @@ from datetime import timedelta
 import logging
 from typing import Any
 
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import CONF_POWER_SWITCH, CONF_UPDATE_SECONDS, DEFAULT_UPDATE_SECONDS, DOMAIN
-from .power import empty_snapshot, power_state_from_switch
+from .power import empty_snapshot, power_off_block_reason, power_state_from_switch
 from .protocol import RexError, get_readings, set_led
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,3 +81,44 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.power_is_off:
                 raise RexError("The configured power switch is off")
             await self.hass.async_add_executor_job(set_led, self.host, on)
+
+    async def async_set_power(self, on: bool) -> None:
+        """Switch the selected external plug, refusing unsafe power-offs.
+
+        Never claim that a plug is on/off until its own HA entity reports it.
+        """
+        if not self.power_switch or self.power_state is None:
+            raise RexError("The selected smart plug is unavailable")
+        if self.power_state is on:
+            return
+
+        async with self.lock:
+            if self.power_state is None:
+                raise RexError("The selected smart plug is unavailable")
+            if self.power_state is on:
+                return
+            if not on:
+                # Never rely on cached readings: re-read temperature and
+                # status immediately before requesting mains shutdown.
+                if self.power_state is not True:
+                    raise RexError("Cannot verify that the smart plug is on")
+                try:
+                    readings = await self.hass.async_add_executor_job(
+                        get_readings, self.host
+                    )
+                except RexError as err:
+                    raise RexError(
+                        "Cannot verify the printer is idle and cool; power-off blocked"
+                    ) from err
+
+                if reason := power_off_block_reason(readings):
+                    raise RexError(f"Unsafe to turn off printer: {reason}")
+                if self.power_state is not True:
+                    raise RexError("Smart plug state changed; power-off cancelled")
+
+            await self.hass.services.async_call(
+                "switch",
+                SERVICE_TURN_ON if on else SERVICE_TURN_OFF,
+                {ATTR_ENTITY_ID: self.power_switch},
+                blocking=True,
+            )

@@ -15,7 +15,11 @@ from .protocol import RexError
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities([RexLedSwitch(entry.runtime_data)])
+    coordinator = entry.runtime_data
+    entities = [RexLedSwitch(coordinator)]
+    if coordinator.power_switch:
+        entities.append(RexPowerSwitch(coordinator))
+    async_add_entities(entities)
 
 
 class RexLedSwitch(RexEntity, SwitchEntity):
@@ -53,3 +57,38 @@ class RexLedSwitch(RexEntity, SwitchEntity):
             raise HomeAssistantError("Unable to control printer LED") from err
         self._attr_is_on = on
         self.async_write_ha_state()
+
+
+class RexPowerSwitch(RexEntity, SwitchEntity):
+    """Proxy the chosen smart plug within the printer device.
+
+    State is read directly from the original plug entity. This is not a
+    virtual or optimistic copy, and the plug itself is not moved.
+    """
+
+    _attr_translation_key = "power_control"
+    _attr_icon = "mdi:power-plug"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "power_control")
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.power_state
+
+    @property
+    def available(self) -> bool:
+        # This must remain usable even when printer polling is unavailable.
+        return self.coordinator.power_state is not None
+
+    async def async_turn_on(self, **kwargs) -> None:
+        try:
+            await self.coordinator.async_set_power(True)
+        except RexError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_turn_off(self, **kwargs) -> None:
+        try:
+            await self.coordinator.async_set_power(False)
+        except RexError as err:
+            raise HomeAssistantError(str(err)) from err
