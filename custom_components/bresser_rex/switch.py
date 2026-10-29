@@ -1,10 +1,10 @@
-"""Optimistic LED control; this firmware does not report LED state reliably."""
+"""Optimistic LED control that is disabled when the smart socket is off."""
 
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -19,7 +19,7 @@ async def async_setup_entry(
 
 
 class RexLedSwitch(RexEntity, SwitchEntity):
-    """Toggle the internal light with M146."""
+    """Toggle the built-in illumination using M146."""
 
     _attr_translation_key = "led"
     _attr_icon = "mdi:lightbulb"
@@ -27,12 +27,23 @@ class RexLedSwitch(RexEntity, SwitchEntity):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "led")
-        self._attr_is_on = None  # Unknown after HA restart or external adjustment.
+        self._attr_is_on = None
 
-    async def async_turn_on(self, **kwargs):
+    @property
+    def available(self) -> bool:
+        return super().available and not self.coordinator.power_is_off
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """An unpowered printer cannot have a reliable LED state."""
+        if self.coordinator.power_is_off:
+            self._attr_is_on = None
+        super()._handle_coordinator_update()
+
+    async def async_turn_on(self, **kwargs) -> None:
         await self._set_led(True)
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs) -> None:
         await self._set_led(False)
 
     async def _set_led(self, on: bool) -> None:

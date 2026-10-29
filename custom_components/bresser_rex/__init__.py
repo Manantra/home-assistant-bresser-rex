@@ -3,28 +3,58 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_HOST, Platform, STATE_OFF
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers.event import async_track_state_change_event
 
+from .const import CONF_POWER_SWITCH
 from .coordinator import RexCoordinator
+from .power import empty_snapshot
 from .protocol import RexError, get_identity
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.CAMERA]
+PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.CAMERA, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Verify the printer identity and start the platforms."""
+    """Set up even if the explicitly selected power socket is switched off."""
     host = entry.data[CONF_HOST]
-    try:
-        info = await hass.async_add_executor_job(get_identity, host)
-    except RexError as err:
-        raise ConfigEntryNotReady(str(err)) from err
+    power_switch = entry.options.get(CONF_POWER_SWITCH)
+    is_off = bool(power_switch and hass.states.is_state(power_switch, STATE_OFF))
 
-    if info["SN"] != entry.unique_id:
-        raise ConfigEntryError("Printer identity changed. Reconfigure the device address.")
+    if is_off:
+        # The serial was verified during the initial config flow. Do not try
+        # connecting to an intentionally unpowered printer on HA restart.
+        info = {"Machine Name": entry.title or "BRESSER REX"}
+    else:
+        try:
+            info = await hass.async_add_executor_job(get_identity, host)
+        except RexError as err:
+            raise ConfigEntryNotReady(str(err)) from err
+        if info["SN"] != entry.unique_id:
+            raise ConfigEntryError(
+                "Printer identity changed. Reconfigure the device address."
+            )
 
-    coordinator = RexCoordinator(hass, host, info["SN"], info, entry.options)
+    coordinator = RexCoordinator(
+        hass, host, entry.unique_id, info, entry.options
+    )
+
+    if power_switch:
+        @callback
+        def power_changed(event) -> None:
+            """Update immediately when the smart plug changes state."""
+            if coordinator.power_is_off:
+                coordinator.async_set_updated_data(empty_snapshot("OFF"))
+            else:
+                if coordinator.power_state is True:
+                    coordinator.async_set_updated_data(empty_snapshot("STARTING"))
+                hass.async_create_task(coordinator.async_request_refresh())
+
+        entry.async_on_unload(
+            async_track_state_change_event(hass, [power_switch], power_changed)
+        )
+
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -33,10 +63,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload all entities and release listeners."""
+    """Unload entities and remove subscriptions."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload entities after settings change."""
+    """Apply the changed power switch or other options by reloading."""
     await hass.config_entries.async_reload(entry.entry_id)

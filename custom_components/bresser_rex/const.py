@@ -8,3 +8,4 @@ MIN_UPDATE_SECONDS = 15
 MAX_UPDATE_SECONDS = 300
 CONF_CAMERA_ENABLED = "camera_enabled"
 CONF_UPDATE_SECONDS = "update_seconds"
+CONF_POWER_SWITCH = "power_switch"
