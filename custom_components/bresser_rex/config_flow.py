@@ -10,9 +10,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry, selector
 
 from .const import (
     CONF_CAMERA_ENABLED,
+    CONF_POWER_SWITCH,
     CONF_UPDATE_SECONDS,
     DEFAULT_UPDATE_SECONDS,
     DOMAIN,
@@ -110,13 +112,29 @@ class BresserRexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class BresserRexOptionsFlow(config_entries.OptionsFlow):
-    """Configure non-connection settings."""
+    """Configure optional smart-plug monitoring and connection settings."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        """Show the options form."""
+        """Show a selector for an optional existing switch entity."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            power_switch = user_input.get(CONF_POWER_SWITCH)
+            if power_switch:
+                registered = entity_registry.async_get(self.hass).async_get(power_switch)
+                if registered is not None and registered.platform == DOMAIN:
+                    errors[CONF_POWER_SWITCH] = "invalid_power_switch"
+            if not errors:
+                return self.async_create_entry(data=user_input)
 
+        old_switch = self.config_entry.options.get(CONF_POWER_SWITCH)
+        optional_switch = (
+            vol.Optional(
+                CONF_POWER_SWITCH,
+                description={"suggested_value": old_switch},
+            )
+            if old_switch
+            else vol.Optional(CONF_POWER_SWITCH)
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
@@ -134,6 +152,10 @@ class BresserRexOptionsFlow(config_entries.OptionsFlow):
                         CONF_CAMERA_ENABLED,
                         default=self.config_entry.options.get(CONF_CAMERA_ENABLED, True),
                     ): bool,
+                    optional_switch: selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="switch")
+                    ),
                 }
             ),
+            errors=errors,
         )

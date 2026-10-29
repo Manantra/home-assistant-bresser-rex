@@ -39,9 +39,16 @@
         "title": "BRESSER REX Einstellungen",
         "data": {
           "update_seconds": "Aktualisierungsintervall (Sekunden)",
-          "camera_enabled": "MJPEG-Kamera aktivieren"
+          "camera_enabled": "MJPEG-Kamera aktivieren",
+          "power_switch": "Smarte Steckdose (optional)"
+        },
+        "data_description": {
+          "power_switch": "Wähle die schaltbare Steckdose, die den Drucker mit Strom versorgt. Bei Aus werden keine Druckerdaten abgefragt."
         }
       }
+    },
+    "error": {
+      "invalid_power_switch": "Bitte eine externe Steckdose wählen, nicht den LED-Schalter des Druckers."
     }
   },
   "entity": {
@@ -76,6 +83,11 @@
     "camera": {
       "camera": {
         "name": "Kamera"
+      }
+    },
+    "binary_sensor": {
+      "power": {
+        "name": "Stromversorgung"
       }
     }
   }

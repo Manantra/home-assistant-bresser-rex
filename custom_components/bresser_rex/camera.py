@@ -14,7 +14,7 @@ from aiohttp import web
 
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import (
     async_aiohttp_proxy_web,
     async_get_clientsession,
@@ -52,8 +52,20 @@ class RexCamera(Camera):
 
     @property
     def available(self) -> bool:
-        # The camera HTTP service is independent of the TCP control session.
-        return True
+        # The camera HTTP service is independent of printer control, but
+        # cannot provide images if the selected power socket is off.
+        return not self.coordinator.power_is_off
+
+    async def async_added_to_hass(self) -> None:
+        """Keep HA's camera availability in sync with the smart plug."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self.async_write_ha_state()
 
     async def _async_open_stream(self) -> aiohttp.ClientResponse:
         """Retry transient camera connection failures before starting a proxy.
@@ -61,6 +73,8 @@ class RexCamera(Camera):
         The returned response belongs to async_aiohttp_proxy_web, which closes
         it when the downstream stream ends.
         """
+        if self.coordinator.power_is_off:
+            raise aiohttp.ClientConnectionError("Printer is powered off")
         session = async_get_clientsession(self.hass)
         for attempt in range(OPEN_ATTEMPTS):
             response = None
@@ -86,6 +100,8 @@ class RexCamera(Camera):
         self, request: web.Request
     ) -> web.StreamResponse | None:
         """Proxy MJPEG, retrying an upstream failure during initial connect."""
+        if self.coordinator.power_is_off:
+            return None
         return await async_aiohttp_proxy_web(
             self.hass,
             request,
@@ -96,6 +112,8 @@ class RexCamera(Camera):
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Extract a frame, retrying if the firmware temporarily drops MJPEG."""
+        if self.coordinator.power_is_off:
+            return None
         session = async_get_clientsession(self.hass)
         for attempt in range(FRAME_ATTEMPTS):
             try:

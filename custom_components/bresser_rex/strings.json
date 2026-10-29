@@ -39,9 +39,16 @@
         "title": "BRESSER REX options",
         "data": {
           "update_seconds": "Refresh interval (seconds)",
-          "camera_enabled": "Enable MJPEG camera"
+          "camera_enabled": "Enable MJPEG camera",
+          "power_switch": "Smart plug (optional)"
+        },
+        "data_description": {
+          "power_switch": "Select the switch that supplies power to the printer. When off, network polling stops."
         }
       }
+    },
+    "error": {
+      "invalid_power_switch": "Select an external power plug, not the printer's own LED switch."
     }
   },
   "entity": {
@@ -76,6 +83,11 @@
     "camera": {
       "camera": {
         "name": "Camera"
+      }
+    },
+    "binary_sensor": {
+      "power": {
+        "name": "Power supply"
       }
     }
   }
