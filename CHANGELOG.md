@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0 – Control selected smart plug from the printer device (beta, hardware retest pending)
+
+- The selected plug now appears as a **Printer power** switch alongside the existing read-only power supply binary sensor.
+- Switching on directly calls the original plug's Home Assistant switch service.
+- Switching off is **guarded**: only READY, zero heater targets, nozzle and bed at or below 40 °C based on a fresh printer reading. Missing, hot or active readings deny shutdown.
+- The original smart plug remains independently usable; this integration cannot prevent manual cutoff outside its own new power switch.
+- No plug configuration means no added power switch.
+
+
 ## v0.3.0 – Smart-plug power monitoring (beta, awaiting hardware validation)
 
 - Optional smart socket selector under integration options (any external `switch` entity).
