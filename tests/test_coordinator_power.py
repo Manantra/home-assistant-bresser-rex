@@ -19,6 +19,7 @@ class FakeCoordinatorBase:
 
     def __init__(self, hass, logger, **kwargs):
         self.hass = hass
+        self.update_interval = kwargs.get("update_interval")
 
 
 class FakeUpdateFailed(Exception):
@@ -151,13 +152,50 @@ class CoordinatorPowerTests(unittest.IsolatedAsyncioTestCase):
         hass, coordinator = self.make_coordinator("on")
         with patch.object(COORDINATOR, "monotonic", return_value=100.0):
             coordinator.note_power_on()
-        with patch.object(COORDINATOR, "monotonic", return_value=105.0):
+        with patch.object(COORDINATOR, "monotonic", return_value=102.0):
             with patch.object(
                 COORDINATOR, "get_readings", side_effect=AssertionError("premature TCP")
             ):
                 data = await coordinator._async_update_data()
         self.assertEqual(data["machine_status"], "STARTING")
         self.assertEqual(hass.calls, [])
+        self.assertEqual(coordinator.update_interval.total_seconds(), 5)
+
+    async def test_first_probe_occurs_after_five_seconds(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=105.0):
+            with patch.object(
+                COORDINATOR, "get_readings",
+                return_value={"machine_status": "READY", "nozzle": 23.0},
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "READY")
+        self.assertEqual(len(hass.calls), 1)
+        self.assertEqual(coordinator.update_interval.total_seconds(), 30)
+
+    async def test_retries_are_fast_during_startup(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=106.0):
+            with patch.object(
+                COORDINATOR, "get_readings",
+                side_effect=COORDINATOR.RexError("booting"),
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "STARTING")
+        self.assertEqual(coordinator.update_interval.total_seconds(), 5)
+
+    async def test_power_off_restores_normal_refresh_period(self):
+        hass, coordinator = self.make_coordinator("off")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        self.assertEqual(coordinator.update_interval.total_seconds(), 5)
+        coordinator.note_power_off()
+        self.assertEqual(coordinator.update_interval.total_seconds(), 30)
+        self.assertIsNone(coordinator._power_on_at)
 
     async def test_transient_boot_failure_stays_starting(self):
         hass, coordinator = self.make_coordinator("on")
@@ -182,6 +220,7 @@ class CoordinatorPowerTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with self.assertRaises(FakeUpdateFailed):
                     await coordinator._async_update_data()
+        self.assertEqual(coordinator.update_interval.total_seconds(), 30)
 
     async def test_successful_boot_recovers_readings(self):
         hass, coordinator = self.make_coordinator("on")
@@ -196,6 +235,7 @@ class CoordinatorPowerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["machine_status"], "READY")
         self.assertEqual(data["nozzle"], 23.0)
         self.assertFalse(coordinator.is_starting)
+        self.assertEqual(coordinator.update_interval.total_seconds(), 30)
 
     async def test_identity_verified_after_powered_off_start(self):
         hass = FakeHass("on")

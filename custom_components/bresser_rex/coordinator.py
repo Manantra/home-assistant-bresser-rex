@@ -21,7 +21,8 @@ from .protocol import RexError, get_readings, set_led
 _LOGGER = logging.getLogger(__name__)
 
 # Give the printer time to boot before attempting its exclusive TCP protocol.
-POWER_ON_SETTLE_SECONDS = 20
+POWER_ON_SETTLE_SECONDS = 5
+POWER_ON_RETRY_SECONDS = 5
 POWER_ON_RECOVERY_SECONDS = 180
 
 
@@ -42,6 +43,9 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.host = host
         self.serial = serial
         self.power_switch = options.get(CONF_POWER_SWITCH)
+        self._normal_update_seconds = options.get(
+            CONF_UPDATE_SECONDS, DEFAULT_UPDATE_SECONDS
+        )
         self.lock = asyncio.Lock()
         self._power_on_at: float | None = None
         self._identity_verified = identity_verified
@@ -69,10 +73,14 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def note_power_on(self) -> None:
         """Begin a bounded warm-up after a real off-to-on transition."""
         self._power_on_at = monotonic()
+        # During startup, probe every few seconds instead of waiting for
+        # the normal (often 30-second) sensor polling interval.
+        self.update_interval = timedelta(seconds=POWER_ON_RETRY_SECONDS)
 
     def note_power_off(self) -> None:
         """Reset the startup countdown when the socket is switched off."""
         self._power_on_at = None
+        self.update_interval = timedelta(seconds=self._normal_update_seconds)
 
     @property
     def is_starting(self) -> bool:
@@ -119,6 +127,13 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "BRESSER REX still booting / reconnecting: %s", err
                     )
                     return empty_snapshot("STARTING")
+                # Once the bounded recovery window ends, stop rapid probes
+                # and report genuine connectivity problems normally.
+                if self._power_on_at is not None:
+                    self._power_on_at = None
+                    self.update_interval = timedelta(
+                        seconds=self._normal_update_seconds
+                    )
                 raise UpdateFailed(
                     f"Printer control connection unavailable: {err}"
                 ) from err
@@ -126,7 +141,11 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.power_is_off:
                 self.note_power_off()
                 return empty_snapshot("OFF")
-            self._power_on_at = None
+            if self._power_on_at is not None:
+                self._power_on_at = None
+                self.update_interval = timedelta(
+                    seconds=self._normal_update_seconds
+                )
             return readings
 
     async def async_set_led(self, on: bool) -> None:

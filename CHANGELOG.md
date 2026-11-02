@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2 – Faster reconnect after smart-plug power-on (beta)
+
+- Reduce the initial post-power-on settling period from 20 to 5 seconds.
+- Poll every 5 seconds while the printer is starting, regardless of the normal user-configured refresh interval.
+- Immediately restore the configured refresh interval when the printer responds, is switched off, or the three-minute recovery window expires.
+- Keep the safety interlock for mains power-off unchanged; no forced power-off or rapid polling while the printer is already running.
+- Add regression tests for first probe timing, fast retries, interval restoration and startup expiration.
+
+
 ## v0.4.1 – Smart-plug startup reconnect fix (beta; hardware retest pending)
 
 - Do not clear printer readings when only the smart plug's attributes change (e.g. current wattage).
