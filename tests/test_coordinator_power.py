@@ -147,6 +147,86 @@ class CoordinatorPowerTests(unittest.IsolatedAsyncioTestCase):
                 await coordinator.async_set_led(True)
         self.assertEqual(hass.calls, [])
 
+    async def test_warmup_suppresses_tcp_and_keeps_starting(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=105.0):
+            with patch.object(
+                COORDINATOR, "get_readings", side_effect=AssertionError("premature TCP")
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "STARTING")
+        self.assertEqual(hass.calls, [])
+
+    async def test_transient_boot_failure_stays_starting(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=135.0):
+            with patch.object(
+                COORDINATOR, "get_readings",
+                side_effect=COORDINATOR.RexError("not yet ready"),
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "STARTING")
+
+    async def test_timeout_restores_real_offline_error(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=300.0):
+            with patch.object(
+                COORDINATOR, "get_readings",
+                side_effect=COORDINATOR.RexError("not reachable"),
+            ):
+                with self.assertRaises(FakeUpdateFailed):
+                    await coordinator._async_update_data()
+
+    async def test_successful_boot_recovers_readings(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=140.0):
+            with patch.object(
+                COORDINATOR, "get_readings",
+                return_value={"machine_status": "READY", "nozzle": 23.0},
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "READY")
+        self.assertEqual(data["nozzle"], 23.0)
+        self.assertFalse(coordinator.is_starting)
+
+    async def test_identity_verified_after_powered_off_start(self):
+        hass = FakeHass("on")
+        coordinator = COORDINATOR.RexCoordinator(
+            hass, "192.0.2.10", "TEST-ID",
+            {"Machine Name": "Test printer"},
+            {"power_switch": "switch.example_plug"}, identity_verified=False,
+        )
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=130.0):
+            with patch.object(
+                COORDINATOR, "get_identity", return_value={"SN": "TEST-ID"}
+            ), patch.object(
+                COORDINATOR, "get_readings", return_value={"machine_status": "READY"}
+            ):
+                data = await coordinator._async_update_data()
+        self.assertEqual(data["machine_status"], "READY")
+        self.assertTrue(coordinator._identity_verified)
+        self.assertEqual(len(hass.calls), 2)
+
+    async def test_startup_guard_blocks_poweroff(self):
+        hass, coordinator = self.make_coordinator("on")
+        with patch.object(COORDINATOR, "monotonic", return_value=100.0):
+            coordinator.note_power_on()
+        with patch.object(COORDINATOR, "monotonic", return_value=110.0):
+            with self.assertRaises(COORDINATOR.RexError):
+                await coordinator.async_set_power(False)
+        self.assertEqual(hass.calls, [])
+        self.assertEqual(hass.services.calls, [])
+
     async def test_power_on_calls_selected_external_switch(self):
         hass, coordinator = self.make_coordinator("off")
         await coordinator.async_set_power(True)

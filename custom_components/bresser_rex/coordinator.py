@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from time import monotonic
 import logging
 from typing import Any
 
@@ -14,16 +15,21 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import CONF_POWER_SWITCH, CONF_UPDATE_SECONDS, DEFAULT_UPDATE_SECONDS, DOMAIN
 from .power import empty_snapshot, power_off_block_reason, power_state_from_switch
+from .protocol import get_identity
 from .protocol import RexError, get_readings, set_led
 
 _LOGGER = logging.getLogger(__name__)
+
+# Give the printer time to boot before attempting its exclusive TCP protocol.
+POWER_ON_SETTLE_SECONDS = 20
+POWER_ON_RECOVERY_SECONDS = 180
 
 
 class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Share printer readings and adapt them to the configured socket state."""
 
     def __init__(
-        self, hass: HomeAssistant, host: str, serial: str, info: dict[str, str], options
+        self, hass: HomeAssistant, host: str, serial: str, info: dict[str, str], options, *, identity_verified: bool = True
     ) -> None:
         super().__init__(
             hass,
@@ -37,6 +43,8 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.serial = serial
         self.power_switch = options.get(CONF_POWER_SWITCH)
         self.lock = asyncio.Lock()
+        self._power_on_at: float | None = None
+        self._identity_verified = identity_verified
         self.device_info = DeviceInfo(
             identifiers={(DOMAIN, serial)},
             manufacturer="BRESSER",
@@ -58,21 +66,67 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Only an explicit off report suppresses printer communication."""
         return self.power_state is False
 
+    def note_power_on(self) -> None:
+        """Begin a bounded warm-up after a real off-to-on transition."""
+        self._power_on_at = monotonic()
+
+    def note_power_off(self) -> None:
+        """Reset the startup countdown when the socket is switched off."""
+        self._power_on_at = None
+
+    @property
+    def is_starting(self) -> bool:
+        """Keep the printer in STARTING for a bounded recovery period."""
+        return (
+            self.power_state is True
+            and self._power_on_at is not None
+            and monotonic() - self._power_on_at < POWER_ON_RECOVERY_SECONDS
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
-        """Poll the printer, unless the selected plug explicitly reports off."""
+        """Poll only after warm-up, retaining STARTING on short boot failures."""
         async with self.lock:
             if self.power_is_off:
+                self.note_power_off()
                 return empty_snapshot("OFF")
+
+            if self.is_starting and (
+                monotonic() - self._power_on_at < POWER_ON_SETTLE_SECONDS
+            ):
+                return empty_snapshot("STARTING")
+
             try:
-                readings = await self.hass.async_add_executor_job(get_readings, self.host)
+                # After HA started while the printer was off or booting,
+                # validate its serial before trusting the network endpoint.
+                if not self._identity_verified:
+                    identity = await self.hass.async_add_executor_job(
+                        get_identity, self.host
+                    )
+                    if identity.get("SN") != self.serial:
+                        raise UpdateFailed(
+                            "Printer serial differs from the configured device"
+                        )
+                    self._identity_verified = True
+                readings = await self.hass.async_add_executor_job(
+                    get_readings, self.host
+                )
             except RexError as err:
-                # The switch might have changed while the TCP call was running.
                 if self.power_is_off:
+                    self.note_power_off()
                     return empty_snapshot("OFF")
-                raise UpdateFailed(str(err)) from err
-            # Do not publish stale data when power changed during a poll.
+                if self.is_starting:
+                    _LOGGER.debug(
+                        "BRESSER REX still booting / reconnecting: %s", err
+                    )
+                    return empty_snapshot("STARTING")
+                raise UpdateFailed(
+                    f"Printer control connection unavailable: {err}"
+                ) from err
+
             if self.power_is_off:
+                self.note_power_off()
                 return empty_snapshot("OFF")
+            self._power_on_at = None
             return readings
 
     async def async_set_led(self, on: bool) -> None:
@@ -98,6 +152,10 @@ class RexCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.power_state is on:
                 return
             if not on:
+                if self.is_starting:
+                    raise RexError(
+                        "Printer still starting or reconnecting; power-off blocked"
+                    )
                 # Never rely on cached readings: re-read temperature and
                 # status immediately before requesting mains shutdown.
                 if self.power_state is not True:

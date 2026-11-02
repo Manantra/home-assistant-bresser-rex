@@ -53,3 +53,11 @@ def power_off_block_reason(readings: dict[str, Any] | None) -> str | None:
             return f"The {key} heater is still enabled"
 
     return None
+
+def power_state_changed(previous: str | None, current: str | None) -> bool:
+    """Ignore attribute-only updates that do not change the plug state.
+
+    Many smart plugs report power consumption every few seconds. Those updates
+    must NOT erase printer readings or trigger repeated connection attempts.
+    """
+    return previous != current

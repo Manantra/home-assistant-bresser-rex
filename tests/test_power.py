@@ -32,6 +32,13 @@ class PowerTests(unittest.TestCase):
         self.assertEqual(set(values) - {"machine_status"}, set(power.READING_KEYS))
         self.assertTrue(all(values[k] is None for k in power.READING_KEYS))
 
+    def test_attribute_only_updates_do_not_trigger_reconnect(self):
+        self.assertFalse(power.power_state_changed("on", "on"))
+        self.assertFalse(power.power_state_changed("off", "off"))
+        self.assertTrue(power.power_state_changed("off", "on"))
+        self.assertTrue(power.power_state_changed("on", "unavailable"))
+        self.assertTrue(power.power_state_changed(None, "on"))
+
     def test_starting_does_not_reuse_stale_progress(self):
         values = power.empty_snapshot("STARTING")
         self.assertEqual(values["machine_status"], "STARTING")

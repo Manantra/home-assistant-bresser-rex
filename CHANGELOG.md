@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.1 – Smart-plug startup reconnect fix (beta; hardware retest pending)
+
+- Do not clear printer readings when only the smart plug's attributes change (e.g. current wattage).
+- Gracefully handle a 20-second boot period and transient TCP failures for up to 3 minutes after actual power-on, with periodic retries.
+- Allow integration to load after HA restarts during printer boot; re-verify saved serial before trusting readings.
+- Preserve the safety interlock: power-off stays blocked until a fresh READY, cool printer reading is available.
+- Regression tests for state changes, startup recovery and safe power-off.
+
+
 ## v0.4.0 – Control selected smart plug from the printer device (beta, hardware retest pending)
 
 - The selected plug now appears as a **Printer power** switch alongside the existing read-only power supply binary sensor.

@@ -10,7 +10,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import CONF_POWER_SWITCH
 from .coordinator import RexCoordinator
-from .power import empty_snapshot
+from .power import empty_snapshot, power_state_changed
 from .protocol import RexError, get_identity
 
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.CAMERA, Platform.BINARY_SENSOR]
@@ -22,36 +22,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     power_switch = entry.options.get(CONF_POWER_SWITCH)
     is_off = bool(power_switch and hass.states.is_state(power_switch, STATE_OFF))
 
+    identity_verified = False
     if is_off:
-        # The serial was verified during the initial config flow. Do not try
-        # connecting to an intentionally unpowered printer on HA restart.
+        # During an HA restart, the powered-off printer is intentionally
+        # unreachable. Verify its serial later when the socket is on.
         info = {"Machine Name": entry.title or "BRESSER REX"}
     else:
         try:
             info = await hass.async_add_executor_job(get_identity, host)
         except RexError as err:
-            raise ConfigEntryNotReady(str(err)) from err
-        if info["SN"] != entry.unique_id:
-            raise ConfigEntryError(
-                "Printer identity changed. Reconfigure the device address."
-            )
+            if not power_switch:
+                raise ConfigEntryNotReady(str(err)) from err
+            # A selected plug may report ON before the printer has finished
+            # booting. Keep the integration and its power switch available.
+            info = {"Machine Name": entry.title or "BRESSER REX"}
+        else:
+            if info["SN"] != entry.unique_id:
+                raise ConfigEntryError(
+                    "Printer identity changed. Reconfigure the device address."
+                )
+            identity_verified = True
 
     coordinator = RexCoordinator(
-        hass, host, entry.unique_id, info, entry.options
+        hass, host, entry.unique_id, info, entry.options,
+        identity_verified=identity_verified,
     )
+    if power_switch and not is_off and not identity_verified:
+        coordinator.note_power_on()
 
     if power_switch:
         @callback
         def power_changed(event) -> None:
-            """Update immediately when the smart plug changes state."""
+            """Only true state transitions should reset printer readings."""
+            old_state = event.data.get("old_state")
+            new_state = event.data.get("new_state")
+            old_value = old_state.state if old_state is not None else None
+            new_value = new_state.state if new_state is not None else None
+            if not power_state_changed(old_value, new_value):
+                # Smart plugs often change attributes (W, kWh, etc.) while
+                # remaining on. Never reset the printer on those events.
+                return
+
             if coordinator.power_is_off:
+                coordinator.note_power_off()
                 coordinator.async_set_updated_data(empty_snapshot("OFF"))
+                return
+
+            if coordinator.power_state is True:
+                coordinator.note_power_on()
+                coordinator.async_set_updated_data(empty_snapshot("STARTING"))
             else:
-                # Notify even if the socket becomes unavailable: never retain
-                # an old definite on/off status while the source is unknown.
-                new_status = "STARTING" if coordinator.power_state is True else None
-                coordinator.async_set_updated_data(empty_snapshot(new_status))
-                hass.async_create_task(coordinator.async_request_refresh())
+                # Unknown plug state must not masquerade as OFF.
+                coordinator.async_set_updated_data(empty_snapshot(None))
+            hass.async_create_task(coordinator.async_request_refresh())
 
         entry.async_on_unload(
             async_track_state_change_event(hass, [power_switch], power_changed)
